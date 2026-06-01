@@ -1,38 +1,3 @@
-Durable-ServiceBus-Orchestration-Demo
-│
-├── src
-│   ├── DurableServiceBusDemo.csproj
-│   ├── Program.cs
-│   │
-│   ├── Functions
-│   │   ├── ServiceBusStarterFunction.cs
-│   │   ├── OrderOrchestrator.cs
-│   │   └── OrderActivities.cs
-│   │
-│   ├── Models
-│   │   ├── OrderMessage.cs
-│   │   └── PaymentResult.cs
-│   │
-│   ├── Services
-│   │   ├── PaymentGatewayClient.cs
-│   │   └── OrderRepository.cs
-│   │
-│   ├── host.json
-│   └── local.settings.json
-│
-├── docs
-│   ├── Architecture.png
-│   ├── Demo-Flow.md
-│   └── Troubleshooting.md
-│
-├── scripts
-│   ├── create-queues.ps1
-│   └── send-test-message.ps1
-│
-├── README.md
-│
-└── .gitignore
-
 # Azure Service Bus + Durable Functions Orchestration Demo
 
 > Learn how to solve long-running Azure Service Bus processing problems using Durable Functions.
