@@ -1,0 +1,14 @@
+Queue Name:
+ledger
+
+Sessions:
+Enabled
+
+Lock Duration:
+30 seconds
+
+Max Delivery Count:
+10
+
+Tier:
+Premium
