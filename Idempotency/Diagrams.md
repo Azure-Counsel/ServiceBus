@@ -98,28 +98,9 @@ sequenceDiagram
 ---
 
 # ❌ REDIS IDEMPOTENCY PITFALL
-```mermaid
-flowchart TD
-    A[Service Bus: Debit $500<br/>Id: ORDER-999] --> B[Consumer Worker]
 
-    B --> C[Check Idempotency Barrier]
-    C --> D[Redis Cache]
+![](RedisIdempotencyIssue.png)
 
-    D --> E{Lookup Result}
-
-    E -->|Hit| F[Skip Execution]
-    E -->|Miss| G[Execute Business Logic]
-
-    E -->|Failure Modes| H[Redis Volatility]
-
-    H --> H1[TTL Expiry]
-    H --> H2[Eviction]
-    H --> H3[Replica Lag]
-    H --> H4[Node Restart]
-
-    G --> I[Stripe Charge $500]
-    I --> J[Double Charge Risk]
-```
 ❗ Redis is:
 
 * volatile
@@ -150,34 +131,75 @@ flowchart LR
 
 # 📈 SCALE-DRIVEN IDEMPOTENCY DECISION MATRIX
 ```mermaid
-flowchart TB
+flowchart LR
 
-A[Scale-Driven Idempotency Decision Matrix]
+%% ==========================================
+%% SCALE-DRIVEN IDEMPOTENCY SWIMLANE
+%% ==========================================
 
-A --> L
-A --> M
-A --> H
+subgraph S1["Low Scale (~10 req/sec)"]
+direction LR
 
-subgraph L[Low Scale ~10 req/sec]
-    L1[Worker] --> L2[SQL-Only Table]
-    L2 --> L3[Simplicity Wins]
+subgraph W1["Worker"]
+L1[Process Request]
 end
 
-subgraph M[Medium Scale ~100 req/sec]
-    M1[Worker]
-    M2[Redis Cache]
-    M3[SQL Database]
-
-    M1 --> M2
-    M1 --> M3
-    M2 --> M4[Reduce DB Reads]
-    M3 --> M4
+subgraph SQL1["SQL"]
+L2[SQL Idempotency Table]
 end
 
-subgraph H[High Scale 1000s+ req/sec]
-    H1[Worker] --> H2[Inbox / Ledger]
-    H2 --> H3[Atomic Append-Only Writes]
-    H3 --> H4[Concurrency Safe Design]
+subgraph O1["Outcome"]
+L3[Simplicity Wins]
+end
+
+L1 --> L2 --> L3
+
+end
+
+subgraph S2["Medium Scale (~100 req/sec)"]
+direction LR
+
+subgraph W2["Worker"]
+M1[Process Request]
+end
+
+subgraph R2["Redis"]
+M2[Lookup Cache]
+end
+
+subgraph SQL2["SQL"]
+M3[Idempotency Table]
+end
+
+subgraph O2["Outcome"]
+M4[Reduce Database Reads]
+end
+
+M1 --> M2
+M1 --> M3
+
+M2 --> M4
+M3 --> M4
+
+end
+
+subgraph S3["High Scale (1000s+ req/sec)"]
+direction LR
+
+subgraph W3["Worker"]
+H1[Process Request]
+end
+
+subgraph I3["Inbox / Ledger"]
+H2[Atomic Append-Only Write]
+end
+
+subgraph O3["Outcome"]
+H3[Concurrency Safe]
+end
+
+H1 --> H2 --> H3
+
 end
 ```
 ---
