@@ -35,8 +35,8 @@ sequenceDiagram
     C->>DB: Duplicate write 💥
 ```
 > 💡 Broker deduplication is temporary memory — NOT a correctness guarantee.
-
-💥 FINANCIAL FAILURE MODE (REPLAY + CRASH)
+---
+# 💥 FINANCIAL FAILURE MODE (REPLAY + CRASH)
 ```mermaid
 sequenceDiagram
     participant P as Producer
@@ -67,7 +67,8 @@ sequenceDiagram
 Expected: $500
 Actual: $1000 ❌
 
-🧠 IDEMPOTENCY KEY PATTERN (CORRECT MODEL)
+---
+# 🧠 IDEMPOTENCY KEY PATTERN (CORRECT MODEL)
 ```mermaid
 sequenceDiagram
     participant C as Consumer
@@ -91,3 +92,98 @@ sequenceDiagram
 
     C-->>C: Skip execution (return cached result)
 ```
+✔ Guarantee:
+1 message → 1 execution → 1 financial outcome
+
+---
+
+# ❌ REDIS IDEMPOTENCY PITFALL
+```mermaid
+flowchart TD
+    A[Service Bus: Debit $500<br/>Id: ORDER-999] --> B[Consumer Worker]
+
+    B --> C[Check Idempotency Barrier]
+    C --> D[Redis Cache]
+
+    D --> E{Lookup Result}
+
+    E -->|Hit| F[Skip Execution]
+    E -->|Miss| G[Execute Business Logic]
+
+    E -->|Failure Modes| H[Redis Volatility]
+
+    H --> H1[TTL Expiry]
+    H --> H2[Eviction]
+    H --> H3[Replica Lag]
+    H --> H4[Node Restart]
+
+    G --> I[Stripe Charge $500]
+    I --> J[Double Charge Risk]
+```
+❗ Redis is:
+
+* volatile
+* eviction-based
+* eventually consistent
+* 👉 NOT a correctness boundary
+
+---
+# 🧠 HYBRID ARCHITECTURE (CORRECT DESIGN)
+```mermaid
+flowchart LR
+    A[Service Bus] --> B[Worker Function]
+
+    B --> C[Redis Lookup]
+
+    C -->|Hit| D[Fast Path Return]
+    C -->|Miss| E[SQL Idempotency Table]
+
+    E -->|Exists| F[Abort Execution]
+    E -->|Not Found| G[Execute Business Logic]
+
+    G --> H[External API Call]
+    G --> I[Write SQL + Idempotency Key]
+
+    I --> C
+```
+---
+
+# 📈 SCALE-DRIVEN IDEMPOTENCY DECISION MATRIX
+```mermaid
+flowchart TB
+
+A[Scale-Driven Idempotency Decision Matrix]
+
+A --> L
+A --> M
+A --> H
+
+subgraph L[Low Scale ~10 req/sec]
+    L1[Worker] --> L2[SQL-Only Table]
+    L2 --> L3[Simplicity Wins]
+end
+
+subgraph M[Medium Scale ~100 req/sec]
+    M1[Worker]
+    M2[Redis Cache]
+    M3[SQL Database]
+
+    M1 --> M2
+    M1 --> M3
+    M2 --> M4[Reduce DB Reads]
+    M3 --> M4
+end
+
+subgraph H[High Scale 1000s+ req/sec]
+    H1[Worker] --> H2[Inbox / Ledger]
+    H2 --> H3[Atomic Append-Only Writes]
+    H3 --> H4[Concurrency Safe Design]
+end
+```
+---
+# ✔ FINAL TAKEAWAYS
+
+Service Bus deduplication ≠ idempotency
+Redis ≠ correctness boundary
+SQL ledger = source of truth
+Inbox pattern = scalable financial safety
