@@ -110,23 +110,9 @@ sequenceDiagram
 
 ---
 # 🧠 HYBRID ARCHITECTURE (CORRECT DESIGN)
-```mermaid
-flowchart LR
-    A[Service Bus] --> B[Worker Function]
 
-    B --> C[Redis Lookup]
+![](HybridAzureIdempotencySolution.png)
 
-    C -->|Hit| D[Fast Path Return]
-    C -->|Miss| E[SQL Idempotency Table]
-
-    E -->|Exists| F[Abort Execution]
-    E -->|Not Found| G[Execute Business Logic]
-
-    G --> H[External API Call]
-    G --> I[Write SQL + Idempotency Key]
-
-    I --> C
-```
 ---
 
 # 📈 SCALE-DRIVEN IDEMPOTENCY DECISION MATRIX
