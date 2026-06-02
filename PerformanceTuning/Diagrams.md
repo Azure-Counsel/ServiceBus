@@ -1,15 +1,11 @@
-# ⚙️ Azure Service Bus Prefetch & Concurrency Tuning Model (Stop-and-Go vs Pipelined Throughput)
+# ⚙️ Azure Service Bus Prefetch & Concurrency Tuning Model  
+## (Stop-and-Go vs Continuous Pipelining)
 
-This document explains how **Prefetch Count, Batch Size, and Concurrency settings** in Azure Service Bus + Azure Functions impact system throughput, starvation, and CPU/network utilization.
-
-It models two states:
-
-- ❌ Stop-and-Go Starvation (bad configuration)
-- ✅ Continuous Pipelining (optimal configuration)
+This document explains how **Prefetch Count, Batch Size, and Concurrency settings** affect throughput, starvation, and system efficiency in Azure Service Bus + Azure Functions.
 
 ---
 
-# ❌ The Bad State: "Stop-and-Go" Starvation
+# ❌ The Bad State: Stop-and-Go Starvation
 
 ## Configuration
 
@@ -20,54 +16,36 @@ Batch Size = 100
 
 ---
 
-## Problem Description
+## Problem
 
-- The worker pulls exactly the number of messages it can process.
-- The buffer empties instantly.
-- The system alternates between:
-  - network waiting
-  - CPU processing
-
-This creates a **stop-start execution pattern**.
+- Worker consumes entire buffer instantly
+- Network thread becomes idle while refilling
+- CPU and network operate sequentially instead of in parallel
 
 ---
 
-## System Flow
+## System Flow (Bad State)
 
-```
-       [ 🌊 RESERVOIR ]       (Azure Service Bus)
-              │
-              ▼ 1. Network fetches 100 messages (~500ms)
-       ┌──────────────┐
-       │ 🛢️ LOCAL TANK │   PREFETCH BUFFER (Capacity: 100)
-       │  [ EMPTY! ]   │   Current Level: 0
-       └──────┬───────┘
-              │
-              ▼ 2. Pump consumes all 100 instantly
-         ┏━━━━━━━━━━┓
-         ┃ 🛑 PUMP 🛑 ┃   Batch Size = 100
-         ┗━━━━┳━━━━━┛
-              ┃
-              ▼
-            ┏━━━┓
-            ┃ DB┃
-            ┗━━━┛
+```mermaid
+flowchart TD
+
+A[Azure Service Bus] -->|Fetch 100 msgs| B[Prefetch Buffer\nCapacity = 100]
+
+B -->|Instant drain| C[Worker / Pump\nBatch Size = 100]
+
+C --> D[Database Write]
+
+B -.-> E[Idle CPU Waiting]
 ```
 
 ---
 
-## Result
+## Outcome
 
-- CPU finishes work quickly
-- Then becomes idle
-- Waiting for network refill
-
-### ❌ Outcome
-
-- Starvation cycles
+- CPU starvation cycles
 - Poor throughput
-- Underutilized CPU
-- Increased latency variance
+- High latency variance
+- No overlap between compute and network
 
 ---
 
@@ -84,43 +62,34 @@ Batch Size = 100
 
 ## Key Idea
 
-The buffer is **larger than consumption rate**, enabling overlap:
+> Prefetch becomes a sliding buffer, not a batch unit.
 
-- Network refills buffer
-- CPU processes current batch
-- Both run in parallel
+Network and CPU run in parallel.
 
 ---
 
-## System Flow
+## System Flow (Good State)
 
-```
-       [ 🌊 RESERVOIR ]       (Azure Service Bus)
-              │
-              ▼ 1. Background refill
-       ┌──────────────┐
-       │ 🛢️ LOCAL TANK │   PREFETCH BUFFER (Capacity: 2000)
-       │ [████████░░]  │   Level: ~1900
-       └──────┬───────┘
-              │
-              ▼ 2. Pump consumes 100 smoothly
-         ┏━━━━━━━━━━┓
-         ┃ ⚡ PUMP ⚡ ┃   Batch Size = 100
-         ┗━━━━┳━━━━━┛
-              ┃
-              ▼
-            ┏━━━┓
-            ┃ DB┃
-            ┗━━━┛
+```mermaid
+flowchart TD
+
+A[Azure Service Bus] -->|Continuous background fetch| B[Prefetch Buffer<br/>Capacity = 2000]
+
+B -->|Batch of 100| C[Worker / Pump]
+
+C --> D[Database]
+
+A -. refill while processing .-> B
+C -. consumes gradually .-> B
 ```
 
 ---
 
 ## Result
 
-- No idle CPU
-- Continuous processing
-- Network and compute overlap
+- CPU always busy
+- Network always refilling buffer
+- No idle cycles
 - Stable throughput
 
 ---
@@ -131,17 +100,20 @@ The buffer is **larger than consumption rate**, enabling overlap:
 
 Many assume:
 
-> “Prefetch = chunk of work processed then refilled”
+> Prefetch = work chunk size
 
-❌ Incorrect
+❌ Wrong
 
 ---
 
 ## Correct Model
 
-Prefetch is a:
+```mermaid
+flowchart LR
 
-> 🔁 Sliding buffer (credit-based flow control)
+A[Prefetch] --> B[Sliding Buffer / Credit Pool]
+B --> C[Continuous Delivery Mechanism]
+```
 
 ---
 
@@ -150,53 +122,41 @@ Prefetch is a:
 Azure Service Bus uses AMQP internally:
 
 - SDK issues "credits"
-- Broker sends messages accordingly
+- Broker sends messages based on available credit
 - Credits are replenished continuously
+
+---
+
+## Flow Control Model
+
+```mermaid
+sequenceDiagram
+participant SDK
+participant Broker
+participant Buffer
+
+SDK->>Broker: Request 2000 credits
+Broker->>Buffer: Send 2000 messages
+
+SDK->>Buffer: Consume 100 messages
+SDK->>Broker: Replenish +100 credits
+
+Broker->>Buffer: Stream 100 new messages
+```
 
 ---
 
 ## Float Valve Analogy
 
-Think of a water tank:
+```mermaid
+flowchart LR
 
-- Broker = Reservoir
-- Prefetch buffer = Tank
-- Worker = Pump
-- Credits = Float valve mechanism
+A[Azure Service Bus] --> B[Reservoir]
+B --> C[Prefetch Buffer / Tank]
+C --> D[Worker / Pump]
+D --> E[Database]
 
----
-
-## Continuous Refill Cycle
-
-```
-1. SDK grants 2000 credits
-2. Broker sends 2000 messages
-3. Worker consumes 100
-4. SDK immediately issues +100 credits
-5. Broker refills buffer
-6. System stabilizes around high watermark
-```
-
----
-
-## Diagram
-
-```
-[ 🌊 AZURE SERVICE BUS ]
-          │
-          │ 3. AMQP credit signal (+100)
-          ▼
-   ┌──────────────┐
-   │ 🛢️ LOCAL TANK │
-   │  (Max 2000)   │
-   │ [██████████]  │  ~1900–2000 stable range
-   └──────┬───────┘
-          │
-          ▼
-        ⚡ PUMP
-          │
-          ▼
-         DB
+C -. float valve .-> B
 ```
 
 ---
@@ -207,163 +167,143 @@ Think of a water tank:
 
 ## Case A: Slow Worker (Backpressure)
 
-### Scenario
+```mermaid
+flowchart TD
 
-- Worker pulls 100 messages
-- Processing takes 10 minutes
-- DB is slow
+A[Worker Slow Processing<br/>10 min batch] --> B[Prefetch stays ~full]
 
-### Effect
+B --> C[SDK stops requesting credits]
+C --> D[Broker pauses sending]
 
-- Prefetch remains full (~1900)
-- SDK stops requesting more credits
-- Broker pauses sending messages
+D --> E[Backpressure protects system]
+```
 
-### Result
+### Outcome
 
-✔ Natural backpressure  
-✔ Prevents memory overflow  
-✔ Protects worker stability  
+- Prevents memory overflow
+- Automatically throttles broker
+- Stabilizes system
 
 ---
 
 ## Case B: Empty Queue
 
-### Scenario
+```mermaid
+flowchart TD
 
-- Only 50 messages exist
-- SDK requests 2000
+A[Service Bus Queue] -->|Only 50 messages| B[Prefetch Buffer]
 
-### Effect
+B --> C[Worker consumes 50]
 
-- Broker returns only 50 messages
-- Prefetch stays low
-
-### Result
-
-✔ No blocking  
-✔ Immediate delivery of new messages  
-
----
-
-# 📊 Decision Tree for Tuning
-
-## Signals to Monitor
-
-1. Queue depth increasing
-2. Lock duration nearing max
-3. DB/API latency increasing
-4. Retry rate increasing
-
----
-
-## Adaptive Control Logic
-
+C --> D[Idle but non-blocking state]
 ```
-                          [ START ]
-                              │
-     ┌────────────────────────┴────────────────────────┐
-     ▼                                                 ▼
-[ DB latency / retries spiking? ] ─ YES ─► ↓ Concurrency
-     │                                               (protect DB)
-     ▼ NO
-     │
-[ Lock duration near max? ] ─────── YES ─► ↓ Concurrency
-     │                                               (reduce pressure)
-     ▼ NO
-     │
-[ Prefetch hits zero? ] ─────────── YES ─► ↓ Batch Size
-     │                                               (fix starvation)
-     ▼ NO
-     │
-[ Queue depth increasing? ] ─────── YES ─► ↑ Concurrency
-     │                                               (scale out)
-     ▼ NO
-     │
-   ✅ OPTIMAL STATE
+
+### Outcome
+
+- No blocking
+- Immediate processing of new messages
+
+---
+
+# 📊 Adaptive Decision Tree
+
+```mermaid
+flowchart TD
+
+A[START MONITORING] --> B{DB latency or retries spiking?}
+
+B -->|YES| C[Decrease Concurrency]
+B -->|NO| D{Lock duration nearing max?}
+
+D -->|YES| E[Decrease Concurrency]
+D -->|NO| F{Prefetch hitting zero?}
+
+F -->|YES| G[Decrease Batch Size]
+F -->|NO| H{Queue depth increasing?}
+
+H -->|YES| I[Increase Concurrency]
+H -->|NO| J[System Optimal]
 ```
 
 ---
 
-# ⚙️ Tuning Levers Explained
+# ⚙️ Tuning Levers
 
 ---
 
-## 🔻 Decrease Concurrency (MaxConcurrentCalls)
+## 🔻 Decrease Concurrency
 
-### Purpose
-Protect downstream systems.
+```mermaid
+flowchart LR
 
-### Effect
-- Fewer parallel DB/API calls
-- Reduced contention
-- Stabilizes failures
+A[High DB Pressure] --> B[Reduce MaxConcurrentCalls]
+B --> C[Lower system load]
+```
 
 ---
 
 ## 🔻 Decrease Batch Size
 
-### Purpose
-Fix starvation cycles.
+```mermaid
+flowchart LR
 
-### Effect
-- Smaller consumption bursts
-- Keeps buffer from hitting zero
-- Improves pipelining
+A[Prefetch starvation] --> B[Smaller consumption units]
+B --> C[Smooth pipeline refill]
+```
 
 ---
 
 ## 🔺 Increase Concurrency
 
-### Purpose
-Increase throughput.
+```mermaid
+flowchart LR
 
-### When to use
-Only when:
-
-- DB is healthy
-- No retries spiking
-- Network is stable
-- Backlog exists
+A[Healthy DB + backlog] --> B[Increase parallel workers]
+B --> C[Higher throughput]
+```
 
 ---
 
 # 🧠 Core Insight
 
-> Prefetch controls *flow*, not batching.
+```mermaid
+flowchart LR
 
-> Concurrency controls *pressure*, not speed.
+A[Prefetch] --> B[Flow Control]
+C[Concurrency] --> D[Pressure Control]
+
+B --> E[Network efficiency]
+D --> F[System stability]
+```
 
 ---
 
 # 🚀 Final Principle
 
-A well-tuned system ensures:
+A correctly tuned system ensures:
 
-- CPU never waits for network
-- Network never waits for CPU
-- DB is never overwhelmed
-- Buffer never oscillates between empty/full
+```mermaid
+flowchart LR
+
+CPU -->|Always busy| DB
+Network -->|Always refilling| Buffer
+Buffer -->|Never empty| CPU
+DB -->|Never overwhelmed| System
+```
 
 ---
 
 # 📌 Summary
 
-| State | Behavior |
-|------|--------|
-| Low Prefetch = Batch Size | Stop-and-Go starvation |
-| High Prefetch > Batch Size | Continuous pipelining |
-| Balanced tuning | Maximum throughput |
+| Configuration | Behavior |
+|--------------|----------|
+| Prefetch = Batch Size | Stop-and-go starvation |
+| Prefetch >> Batch Size | Continuous pipelining |
+| Poor tuning | Idle CPU cycles |
+| Optimal tuning | Full resource utilization |
 
 ---
 
 # 🎯 Final Insight
 
-If your system alternates between:
-
-> "fast processing" → "idle waiting"
-
-You are not compute-bound.
-
-You are **pipeline-bound**.
-```
+> If CPU and network are taking turns, your system is not compute-bound — it is pipeline-bound.
