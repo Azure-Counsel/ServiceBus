@@ -21,9 +21,10 @@ sequenceDiagram
     P->>SB: Message ORD-100 (09:00)
     SB->>SB: Cache MessageId (ORD-100)
     SB->>C: Deliver Message
-    C->>DB: Insert Record ✅ SUCCESS
+    C->>DB: Insert Record SUCCESS
 
     Note over SB: Duplicate within 10 min window
+
     P->>SB: Replay ORD-100 (09:05)
     SB-->>C: Blocked (duplicate detected)
 
