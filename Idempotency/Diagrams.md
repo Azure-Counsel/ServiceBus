@@ -183,7 +183,7 @@ end
 ---
 # ✔ FINAL TAKEAWAYS
 
-Service Bus deduplication ≠ idempotency
-Redis ≠ correctness boundary
-SQL ledger = source of truth
-Inbox pattern = scalable financial safety
+* Service Bus deduplication ≠ idempotency
+* Redis ≠ correctness boundary
+* SQL ledger = source of truth
+* Inbox pattern = scalable financial safety
