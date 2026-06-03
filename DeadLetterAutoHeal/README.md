@@ -246,7 +246,50 @@ Responsible Component:
 ```text
 ControlledRequeueService.cs
 ```
+```mermaid
+flowchart TD
 
+    subgraph Recovery["🌀 Recovery Package"]
+        A["Transient Recovery Bundle"]
+    end
+
+    subgraph Replay["⚙️ Controlled Replay Engine"]
+        B["Inject Tracking Headers"]
+        C["Apply Exponential Backoff"]
+        D["Scheduled Enqueue"]
+    end
+
+    subgraph Processing["🌊 Production Processing"]
+        E["Main Production Queue"]
+        F{"Worker Success?"}
+        G["✅ Complete"]
+        H["💥 Dead-Letter Again"]
+    end
+
+    subgraph Governance["🛡️ Replay Governance"]
+        I["Re-Evaluation Safeguard"]
+        J{"Retry Count > Max?"}
+        K["🚨 Hard Stop<br/>Cold Storage + Escalation"]
+        L["🔄 Return to Isolation"]
+    end
+
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+
+    E --> F
+    F -->|Yes| G
+    F -->|No| H
+
+    H --> I
+    I --> J
+
+    J -->|Yes| K
+    J -->|No| L
+
+    L --> A
+```
 ---
 
 # Order Processing Function
