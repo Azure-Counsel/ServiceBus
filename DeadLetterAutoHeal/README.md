@@ -199,7 +199,32 @@ Responsible Component:
 ```text
 InspectService.cs
 ```
+```mermaid
+flowchart TD
 
+    A["📦 Quarantined Message<br/>Payload & Context"]
+    B["⚙️ Inspection Engine<br/>(Azure Function)"]
+
+    A --> B
+
+    subgraph Classification["🔍 Failure Classification"]
+        C["429 / 503<br/>Cosmos Throttled<br/>Network Timeout"]
+        D["400 / 404<br/>Malformed JSON<br/>Schema Mismatch"]
+        E["500<br/>Null Reference<br/>Third-Party Drop"]
+    end
+
+    B --> C
+    B --> D
+    B --> E
+
+    C --> F["🌀 TRANSIENT"]
+    D --> G["💀 PERMANENT"]
+    E --> H["❓ UNKNOWN"]
+
+    F --> I["🔄 Retry Pipeline<br/>Backoff & Replay"]
+    G --> J["📁 Cold Storage<br/>Manual Review"]
+    H --> K["🚨 Escalation Bus<br/>Slack / PagerDuty"]
+```
 ---
 
 ## Step 3 — Controlled Requeue
