@@ -155,7 +155,31 @@ Responsible Component:
 ```text
 IsolateService.cs
 ```
+```mermaid
+flowchart TD
 
+    A["🌊 MAIN SERVICE BUS QUEUE"]
+    B["💀 DEAD-LETTER QUEUE (DLQ)"]
+
+    A -->|"Processing Fails Repeatedly"| B
+
+    B -->|"❌ Blind Direct Replay"| C["🔄 INFINITE CRASH LOOP<br/>Crashes DB / Uses up CPU"]
+
+    B -->|"✅ Move to Quarantine Pipeline"| D["⚙️ ISOLATION CONSUMER"]
+
+    subgraph R["📦 REMEDIATION PIPELINE / STORE"]
+        F["🛡️ PRESERVED CONTEXT BUNDLE<br/><br/>
+        MessageId: ORD-1021<br/>
+        DeadLetterReason: 429 - Too Many Requests<br/>
+        DeliveryCount: 10<br/>
+        CorrelationId: TX-99882-XYZ<br/>
+        ExceptionMsg: Request charge too large.<br/>Retries exhausted."]
+        
+        G["🎯 STATUS<br/>QUARANTINE / UNDER INVESTIGATION"]
+    end
+
+    D --> R
+```
 ---
 
 ## Step 2 — Inspect
